@@ -30,16 +30,6 @@ from docx import Document
 import mobi
 import pandas as pd
 
-# 定义每百万个 prompt token 和 completion token 的价格（假设为 $2）
-PROMPT_PRICE_PER_MILLION_TOKENS = 0.6
-COMPLETION_PRICE_PER_MILLION_TOKENS = 2.4
-
-# 单次翻译的token数
-SINGLE_TRANSLATION_TOKEN_COUNT = 1024
-
-# 使用的模型完整名称
-MODEL_NAME = "gpt-4.1-mini"
-
 def get_docx_title(docx_filename):
     with zipfile.ZipFile(docx_filename) as zf:
         core_properties = etree.fromstring(zf.read("docProps/core.xml"))
@@ -147,7 +137,17 @@ endpage = config.getint('option', 'endpage', fallback=-1)
 # 设置译名表文件路径
 transliteration_list_file = config.get('option', 'transliteration-list')
 # 译名表替换是否开启大小写匹配？
-case_matching = config.get('option', 'case-matching')
+case_matching = config.getboolean('option', 'case-matching', fallback=True)
+
+# 定义每百万个 prompt token 和 completion token 的价格
+PROMPT_PRICE_PER_MILLION_TOKENS = config.getfloat('option', 'prompt-price-per-million-tokens', fallback=0.6)
+COMPLETION_PRICE_PER_MILLION_TOKENS = config.getfloat('option', 'completion-price-per-million-tokens', fallback=2.4)
+
+# 单次翻译的token数
+SINGLE_TRANSLATION_TOKEN_COUNT = config.getint('option', 'single-translation-token-count', fallback=1024)
+
+# 使用的模型完整名称
+MODEL_NAME = config.get('option', 'model-name', fallback='gpt-4.1-mini')
 
 # 将openai的API密钥分割成数组
 key_array = openai_apikey.split(',')
