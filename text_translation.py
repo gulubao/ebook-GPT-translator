@@ -34,6 +34,12 @@ import pandas as pd
 PROMPT_PRICE_PER_MILLION_TOKENS = 0.6
 COMPLETION_PRICE_PER_MILLION_TOKENS = 2.4
 
+# 单次翻译的token数
+SINGLE_TRANSLATION_TOKEN_COUNT = 1024
+
+# 使用的模型完整名称
+MODEL_NAME = "gpt-4.1-mini"
+
 def get_docx_title(docx_filename):
     with zipfile.ZipFile(docx_filename) as zf:
         core_properties = etree.fromstring(zf.read("docProps/core.xml"))
@@ -169,7 +175,7 @@ parser.add_argument("--test", help="Only translate the first 3 short texts", act
 parser.add_argument("--tlist", help="Use the translated name table", action="store_true")
 args = parser.parse_args()
 
-def create_chat_completion(prompt, text, model="gpt-4.1-mini"):
+def create_chat_completion(prompt, text, model=MODEL_NAME):
     api_key = random_api_key()
     client = OpenAI(api_key=api_key, base_url=api_base)
     completion = client.chat.completions.create(
@@ -281,7 +287,7 @@ def convert_pdf_to_text(pdf_filename, start_page=1, end_page=-1):
     return text
 
 
-# 将文本分成不大于1024字符的短文本list
+# 将文本分成不大于 SINGLE_TRANSLATION_TOKEN_COUNT 字符的短文本list
 def split_text(text):
     sentence_list = re.findall(r'.+?[。！？!?.]', text)
 
@@ -291,10 +297,10 @@ def split_text(text):
     short_text = ""
     # 遍历句子列表
     for s in sentence_list:
-        # 如果当前短文本加上新的句子长度不大于1024，则将新的句子加入当前短文本
-        if len(short_text + s) <= 1024:
+        # 如果当前短文本加上新的句子长度不大于 SINGLE_TRANSLATION_TOKEN_COUNT，则将新的句子加入当前短文本
+        if len(short_text + s) <= SINGLE_TRANSLATION_TOKEN_COUNT:
             short_text += s
-        # 如果当前短文本加上新的句子长度大于1024，则将当前短文本加入短文本列表，并重置当前短文本为新的句子
+        # 如果当前短文本加上新的句子长度大于 SINGLE_TRANSLATION_TOKEN_COUNT，则将当前短文本加入短文本列表，并重置当前短文本为新的句子
         else:
             short_text_list.append(short_text)
             short_text = s
@@ -459,7 +465,7 @@ if filename.endswith('.epub'):
             if args.tlist:
                 text = text_replace(text, transliteration_list_file, case_matching)
 
-            # 将文本分成不大于1024字符的短文本list
+            # 将文本分成不大于 SINGLE_TRANSLATION_TOKEN_COUNT 字符的短文本list
             short_text_list = split_text(text)
             if args.test:
                 short_text_list = short_text_list[:3]
@@ -507,7 +513,7 @@ else:
     if args.tlist:
         text = text_replace(text, transliteration_list_file, case_matching)
 
-    # 将文本分成不大于1024字符的短文本list
+    # 将文本分成不大于 SINGLE_TRANSLATION_TOKEN_COUNT 字符的短文本list
     short_text_list = split_text(text)
     if args.test:
         short_text_list = short_text_list[:3]
