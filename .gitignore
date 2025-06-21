@@ -3,6 +3,7 @@
 *.epub
 *.txt
 !requirements.txt
-
+.python-version
+.vscode
 # config
 settings.cfg

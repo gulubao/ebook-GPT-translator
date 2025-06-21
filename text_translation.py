@@ -2,7 +2,7 @@
 
 import pdfminer.high_level
 import re
-import openai
+from openai import OpenAI
 from tqdm import tqdm
 # import nltk
 # nltk.download('punkt')
@@ -30,6 +30,9 @@ from docx import Document
 import mobi
 import pandas as pd
 
+# 定义每百万个 prompt token 和 completion token 的价格（假设为 $2）
+PROMPT_PRICE_PER_MILLION_TOKENS = 0.6
+COMPLETION_PRICE_PER_MILLION_TOKENS = 2.4
 
 def get_docx_title(docx_filename):
     with zipfile.ZipFile(docx_filename) as zf:
@@ -140,37 +143,23 @@ transliteration_list_file = config.get('option', 'transliteration-list')
 # 译名表替换是否开启大小写匹配？
 case_matching = config.get('option', 'case-matching')
 
-# 设置openai的API密钥
-openai.api_key = openai_apikey
-
 # 将openai的API密钥分割成数组
 key_array = openai_apikey.split(',')
 
 def random_api_key():
     return random.choice(key_array)
 
-def create_chat_completion(prompt, text, model="gpt-3.5-turbo", **kwargs):
-    openai.api_key = random_api_key()
-    return openai.ChatCompletion.create(
-        model=model,
-        messages=[
-            {
-                "role": "user",
-                "content": f"{prompt}: \n{text}",
-            }
-        ],
-        **kwargs
-    )
-
 import argparse
+api_key = os.getenv("OPENAI_API_KEY")
+# api_proxy = os.getenv("OPENAI_API_BASE", "")
 
 # 如果配置文件有写，就设置api代理
 if len(api_proxy) == 0:
-    print("未检测到OpenAI API 代理，当前使用api地址为: " + openai.api_base)
+    print("未检测到OpenAI API 代理，当前使用api地址为: " + api_proxy)
 else:
     api_proxy_url = api_proxy + "/v1"
-    openai.api_base = os.environ.get("OPENAI_API_BASE", api_proxy_url)
-    print("正在使用OpenAI API 代理，代理地址为: "+openai.api_base)
+    api_base = os.environ.get("OPENAI_API_BASE", api_proxy_url)
+    print("正在使用OpenAI API 代理，代理地址为: "+api_base)
 
 # 创建参数解析器
 parser = argparse.ArgumentParser()
@@ -179,6 +168,24 @@ parser.add_argument("--test", help="Only translate the first 3 short texts", act
 # 是否使用译名表？
 parser.add_argument("--tlist", help="Use the translated name table", action="store_true")
 args = parser.parse_args()
+
+def create_chat_completion(prompt, text, model="gpt-4.1-mini"):
+    api_key = random_api_key()
+    client = OpenAI(api_key=api_key, base_url=api_base)
+    completion = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "developer",
+                "content": f"{prompt}"
+            },
+            {
+                "role": "user",
+                "content": f"{text}",
+            }
+        ]
+    )
+    return completion
 
 # 获取命令行参数
 filename = args.filename
@@ -306,24 +313,25 @@ def return_text(text):
 
 # Initialize a count variable of tokens cost.
 cost_tokens = 0
-
+completion_tokens = 0
+prompt_tokens = 0
 
 # 翻译短文本
 def translate_text(text):
     global cost_tokens
+    global completion_tokens
+    global prompt_tokens
 
     # 调用openai的API进行翻译
     try:
         completion = create_chat_completion(prompt, text)
         t_text = (
-            completion["choices"][0]
-            .get("message")
-            .get("content")
-            .encode("utf8")
-            .decode()
+            completion.choices[0].message.content.encode("utf8").decode()
         )
         # Get the token usage from the API response
-        cost_tokens += completion["usage"]["total_tokens"]
+        cost_tokens += completion.usage.total_tokens
+        completion_tokens += completion.usage.completion_tokens
+        prompt_tokens += completion.usage.prompt_tokens
 
     except Exception as e:
         import time
@@ -334,14 +342,12 @@ def translate_text(text):
 
         completion = create_chat_completion(prompt, text)
         t_text = (
-            completion["choices"][0]
-            .get("message")
-            .get("content")
-            .encode("utf8")
-            .decode()
+            completion.choices[0].message.content.encode("utf8").decode()
         )
         # Get the token usage from the API response
-        cost_tokens += completion["usage"]["total_tokens"]
+        cost_tokens += completion.usage.total_tokens
+        completion_tokens += completion.usage.completion_tokens
+        prompt_tokens += completion.usage.prompt_tokens
 
     return t_text
 
@@ -531,8 +537,13 @@ else:
     # 将翻译后的文本同时写入txt文件 in case epub插件出问题
     with open(new_filenametxt, "w", encoding="utf-8") as f:
         f.write(translated_text)
-cost = cost_tokens / 1000 * 0.002
-print(f"Translation completed. Total cost: {cost_tokens} tokens, ${cost}.")
+
+cost = (prompt_tokens / 1_000_000 * PROMPT_PRICE_PER_MILLION_TOKENS) + \
+       (completion_tokens / 1_000_000 * COMPLETION_PRICE_PER_MILLION_TOKENS)
+
+# 计算总token数
+total_tokens = prompt_tokens + completion_tokens
+print(f"翻译完成. 总token数: {total_tokens / 1_000_000:.6f}M tokens (prompt: {prompt_tokens / 1_000_000:.6f}M, completion: {completion_tokens / 1_000_000:.6f}M), 输入每百万 ${PROMPT_PRICE_PER_MILLION_TOKENS:.6f}，输出每百万 ${COMPLETION_PRICE_PER_MILLION_TOKENS:.6f}，总成本${cost:.6f}.")
 
 try:
     os.remove(jsonfile)
